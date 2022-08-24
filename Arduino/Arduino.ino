@@ -16,8 +16,8 @@ const int photocellPin = A0;
 
 // ************************************* Variables *************************************
 
-const long openTimeout = 1;                 // timeout for ramp to open in s
-const long closeTimeout = 1;                // timeout for ramp to close in s
+const long openTimeout = 5;                 // timeout for ramp to open in s
+const long closeTimeout = 5;                // timeout for ramp to close in s
 
 unsigned long debounceDelay = 50;           // limit switch debounce time in ms
 
@@ -58,7 +58,7 @@ void loop() {
 void readLightLevel() {
 
   // return if we already read the light level in the past 10min
-  if ( (millis() - lastPhotocellReadTime) < ( photocellReadInterval * 1000 ) ) return;
+  if ( (millis() - lastPhotocellReadTime) < (photocellReadInterval * 1000) ) return;
 
   lastPhotocellReadTime = millis();
 
@@ -80,31 +80,20 @@ void readLightLevel() {
     Serial.println(" - Very bright");
   }
   
-
-
   if (lastPhotocellReadValue >= 500)
   {
-    //motorUp(255);
     rampDown();
   }
   
   if (lastPhotocellReadValue <= 300)
   {
-    //motorDown(255);
     rampUp();
   }
-
-  //if (lastPhotocellReadValue < 600 && lastPhotocellReadValue > 300)
-  //{
-  //  motorOff();
-  //}
   
 }
 
 
-
 // ********************************** Limit Switches ************************************
-
 
 void rampUp() {
   if (topLimitIsOpen()) {
@@ -114,7 +103,7 @@ void rampUp() {
     while (topLimitIsOpen()) {
       motorUp(255);
       // error out if takes too long
-      if ( (millis() - startTime) >= closeTimeout * 1000 ) {
+      if ( millis() - startTime >= closeTimeout * 1000 ) {
         rampUpError = true;
         Serial.println("ERROR");
         motorOff();
@@ -134,7 +123,7 @@ void rampDown() {
     while (bottomLimitIsOpen()) {
       motorDown(255);
       // error out if takes too long, or if top limit gets triggered (string wrap-around)
-      if ( (millis() - startTime) >= ( openTimeout * 1000 ) or !topLimitIsOpen() ) {
+      if ( millis() - startTime >= openTimeout * 1000 or !topLimitIsOpen() ) {
         rampDownError = true;
         Serial.println("ERROR");
         motorOff();
