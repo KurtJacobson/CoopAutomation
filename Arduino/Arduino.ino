@@ -54,13 +54,8 @@ void loop() {
 
 void readLightLevel() {
 
-  const int ncycles = 10;
-  static int ccycle = 0;
-
-  // return if we already read the light level in the past 10min
-  //if ( (millis() - lastPhotocellReadTime) < (photocellReadInterval * 1000) ) return;
-
-  //lastPhotocellReadTime = millis();
+  const int ncycles = 10;         // number of read cycles before moving ramp
+  static int ccycle = 0;          // current cycle
 
   // Read light level
   photocellValue = analogRead(photocellPin);
@@ -100,7 +95,7 @@ void readLightLevel() {
 }
 
 
-// ********************************** Limit Switches ************************************
+// ************************************ Ramp Logic **************************************
 
 void rampUp() {
   if ( !topLimitIsOpen( )) return;       // return if ramp already up
@@ -124,7 +119,7 @@ void rampUp() {
 }
 
 void rampDown() {
-  if ( !bottomLimitIsOpen() ) return;      // return if ramp down already
+  if ( !bottomLimitIsOpen() ) return;      // return if ramp already down
   if ( rampDownError ) return;             // return if previous ramp down error
 
   motorDown(255);                          // turn on motor
@@ -143,6 +138,9 @@ void rampDown() {
   Serial.println("OK");
   motorOff();
 }
+
+
+// ********************************** Limit Switches ************************************
 
 boolean topLimitIsOpen() {
   int reading1 = digitalRead(topLimitPin);
@@ -202,7 +200,7 @@ float movingAverage(float value) {
   if (cvalues == nvalues)
     sum -= values[current];
 
-  values[current] = value;          // Replace the oldest with the latest
+  values[current] = value;            // Replace the oldest with the latest
 
   if (++current >= nvalues)
     current = 0;
