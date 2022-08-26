@@ -19,19 +19,18 @@ const int photocellPin = A0;
 const long openTimeout = 5;                 // timeout for ramp to open in s
 const long closeTimeout = 5;                // timeout for ramp to close in s
 
-unsigned long debounceDelay = 50;           // limit switch debounce time in ms
+const long debounceDelay = 50;              // limit switch debounce time in ms
 
-const long photocellReadInterval = 1;      // time in s between light level readings
+const long photocellReadInterval = 1;       // time in s between light level readings
 unsigned long lastPhotocellReadTime = 0;    // time of last light level reading
-int lastPhotocellReadValue = 0;             // last light level reading value
-
+int photocellValue = 0;                     // last light level reading
+float avgPhotocellValue = 0;                  // rolling avg light level
 
 bool rampUpError = false;
 bool rampDownError = false;
 
 
 void setup() {
-  // put your setup code here, to run once:
 
   // Motor control outputs
   pinMode(motorUpPin, OUTPUT);
@@ -46,10 +45,8 @@ void setup() {
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-
   readLightLevel();
-
+  delay(photocellReadInterval * 1000);
 }
 
 
@@ -57,82 +54,94 @@ void loop() {
 
 void readLightLevel() {
 
-  // return if we already read the light level in the past 10min
-  if ( (millis() - lastPhotocellReadTime) < (photocellReadInterval * 1000) ) return;
+  const int ncycles = 10;
+  static int ccycle = 0;
 
-  lastPhotocellReadTime = millis();
+  // return if we already read the light level in the past 10min
+  //if ( (millis() - lastPhotocellReadTime) < (photocellReadInterval * 1000) ) return;
+
+  //lastPhotocellReadTime = millis();
 
   // Read light level
-  lastPhotocellReadValue = analogRead(photocellPin);
+  photocellValue = analogRead(photocellPin);
   Serial.print("Light value: ");
-  Serial.print(lastPhotocellReadValue);
+  Serial.print(photocellValue);
 
   // Light threshholds, qualitatively determined
-  if (lastPhotocellReadValue < 10) {
+  if (photocellValue < 10) {
     Serial.println(" - Dark");
-  } else if (lastPhotocellReadValue < 200) {
+  } else if (photocellValue < 200) {
     Serial.println(" - Dim");
-  } else if (lastPhotocellReadValue < 500) {
+  } else if (photocellValue < 500) {
     Serial.println(" - Light");
-  } else if (lastPhotocellReadValue < 800) {
+  } else if (photocellValue < 800) {
     Serial.println(" - Bright");
   } else {
     Serial.println(" - Very bright");
   }
-  
-  if (lastPhotocellReadValue >= 500)
-  {
-    rampDown();
+
+  avgPhotocellValue = movingAverage(photocellValue);
+  Serial.print("Avg: ");
+  Serial.println(avgPhotocellValue);
+
+  if (++ccycle >= ncycles) {
+    ccycle = 0;
+
+    if (avgPhotocellValue >= 500)
+    {
+      rampDown();
+    }
+    
+    if (avgPhotocellValue <= 300)
+    {
+      rampUp();
+    }
   }
-  
-  if (lastPhotocellReadValue <= 300)
-  {
-    rampUp();
-  }
-  
 }
 
 
 // ********************************** Limit Switches ************************************
 
 void rampUp() {
-  if (topLimitIsOpen()) {
-    if ( rampUpError ) return;
-    Serial.print("Ramp is moving up...");
-    unsigned long startTime = millis();
-    while (topLimitIsOpen()) {
-      motorUp(255);
-      // error out if takes too long
-      if ( millis() - startTime >= closeTimeout * 1000 ) {
-        rampUpError = true;
-        Serial.println("ERROR");
-        motorOff();
-        return;
-      }
+  if ( !topLimitIsOpen( )) return;       // return if ramp already up
+  if ( rampUpError ) return;             // return if previous ramp up error
+
+  motorUp(255);                          // turn motor on
+  Serial.print("Ramp is moving up...");
+  
+  unsigned long startTime = millis();
+  while (topLimitIsOpen()) {
+    // error out if takes too long
+    if ( millis() - startTime >= closeTimeout * 1000 ) {
+      rampUpError = true;
+      Serial.println("ERROR");
+      motorOff();
+      return;
     }
-    Serial.println("OK");
-    motorOff();
   }
+  Serial.println("OK");
+  motorOff();
 }
 
 void rampDown() {
-  if (bottomLimitIsOpen()) {
-    if ( rampDownError ) return;
-    Serial.print("Ramp is moving down...");
-    unsigned long startTime = millis();
-    while (bottomLimitIsOpen()) {
-      motorDown(255);
-      // error out if takes too long, or if top limit gets triggered (string wrap-around)
-      if ( millis() - startTime >= openTimeout * 1000 or !topLimitIsOpen() ) {
-        rampDownError = true;
-        Serial.println("ERROR");
-        motorOff();
-        return;
-      }
+  if ( !bottomLimitIsOpen() ) return;      // return if ramp down already
+  if ( rampDownError ) return;             // return if previous ramp down error
+
+  motorDown(255);                          // turn on motor
+  Serial.print("Ramp is moving down...");
+  
+  unsigned long startTime = millis();
+  while (bottomLimitIsOpen()) {
+    // error out if takes too long, or if top limit gets triggered (string wrap-around)
+    if ( millis() - startTime >= openTimeout * 1000 or !topLimitIsOpen() ) {
+      rampDownError = true;
+      Serial.println("ERROR");
+      motorOff();
+      return;
     }
-    Serial.println("OK");
-    motorOff();
   }
+  Serial.println("OK");
+  motorOff();
 }
 
 boolean topLimitIsOpen() {
@@ -148,6 +157,7 @@ boolean bottomLimitIsOpen() {
   int reading2 = digitalRead(bottomLimitPin);
   return (reading1 == reading2) && reading1 == 0;
 }
+
 
 // *********************************** Motor Control ************************************
 
@@ -173,4 +183,32 @@ void motorOff() {
   digitalWrite(motorUpPin, LOW);
   digitalWrite(motorDownPin, LOW);
   analogWrite(motorSpeedPin, 0);
+}
+
+
+// ********************************* Utility Functions **********************************
+
+float movingAverage(float value) {
+  //https://stackoverflow.com/questions/67208086/how-can-i-calculate-a-moving-average-in-arduino 
+  const byte nvalues = 10;            // Moving average window
+  static byte current = 0;            // Index for current value
+  static byte cvalues = 0;            // Count of values read (<= nvalues)
+  static float sum = 0;               // Rolling sum
+  static float values[nvalues];
+
+  sum += value;
+
+  // If the window is full, adjust the sum by deleting the oldest value
+  if (cvalues == nvalues)
+    sum -= values[current];
+
+  values[current] = value;          // Replace the oldest with the latest
+
+  if (++current >= nvalues)
+    current = 0;
+
+  if (cvalues < nvalues)
+    cvalues += 1;
+
+  return sum/cvalues;
 }
