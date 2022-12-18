@@ -7,12 +7,11 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);
 
 // Motor control outputs
 const int motorSpeedPin = 10;
-const int motorUpPin = 11;
-const int motorDownPin = 12;
+const int motorDownPin = 11;
+const int motorUpPin = 12;
 
 // Limit switch inputs
-const int topLimitPin = 7;
-const int bottomLimitPin = 8;
+const int switchPin = 7;
 
 // Photocell input
 const int photocellPin = A0;
@@ -28,10 +27,12 @@ const long debounceDelay = 50;              // limit switch debounce time in ms
 const long photocellReadInterval = 1;       // time in s between light level readings
 unsigned long lastPhotocellReadTime = 0;    // time of last light level reading
 int photocellValue = 0;                     // last light level reading
-float avgPhotocellValue = 0;                  // rolling avg light level
+float avgPhotocellValue = 0;                // rolling avg light level
 
 bool rampUpError = false;
 bool rampDownError = false;
+
+int rampClosed = -1;                        // current ramp state
 
 
 void setup() {
@@ -46,8 +47,7 @@ void setup() {
   pinMode(motorSpeedPin, OUTPUT);
 
   // Limit switch inputs
-  pinMode(topLimitPin, INPUT_PULLUP);
-  pinMode(bottomLimitPin, INPUT_PULLUP);
+  pinMode(switchPin, INPUT_PULLUP);
 
   Serial.begin(9600); // set serial port for communication
 }
@@ -57,13 +57,9 @@ void loop() {
   delay(photocellReadInterval * 1000);
 
   lcd.setCursor(0,2);
-  lcd.print("UP SW:");
-  lcd.print(!digitalRead(topLimitPin));
-  
-  lcd.setCursor(10,2);
-  lcd.print("DN SW:");
-  lcd.print(!   digitalRead(bottomLimitPin));
-   
+  lcd.print("SW State:");
+  lcd.print(!digitalRead(switchPin));
+     
 }
 
 
@@ -110,12 +106,12 @@ void readLightLevel() {
   if (++ccycle >= ncycles) {
     ccycle = 0;
 
-    if (avgPhotocellValue >= 500)
+    if (avgPhotocellValue >= 300)
     {
       rampDown();
     }
     
-    if (avgPhotocellValue <= 75)
+    if (avgPhotocellValue <= 25)
     {
       rampUp();
     }
@@ -126,20 +122,20 @@ void readLightLevel() {
 // ************************************ Ramp Logic **************************************
 
 void rampUp() {
-  if ( topLimitIsClosed() ) return;      // return if ramp already up
-  if ( rampUpError ) return;             // return if previous ramp up error
 
-  motorUp(255);                          // turn motor on
-  Serial.print("Ramp is moving up...");
-   
+  if ( rampClosed == 1 or rampUpError == true) return;         // return if ramp already open
+
+  motorUp(255);                          // turn on motor
   unsigned long startTime = millis();
-  while ( !topLimitIsClosed() ) {
+  Serial.print("Ramp is moving up..."); 
+  delay(500);                            // delay a couple ms to get off switch
+
+  while ( !switchIsClosed() ) {
     // error out if takes too long
     if ( millis() - startTime >= closeTimeout * 1000 ) {
       rampUpError = true;
       Serial.println("ERROR");
       motorOff();
-      rampDown(); // open the ramp, want to fail in open position
 
       lcd.setCursor(0,3);
       lcd.print("RAMP: CLOSE ERROR!!!");
@@ -147,25 +143,27 @@ void rampUp() {
       return;
     }
   }
-  Serial.println("OK");
+
   motorOff();
+  rampClosed = 1;
   
+  Serial.println("OK");
   lcd.setCursor(0,3);
   lcd.print("RAMP: CLOSED");
 }
 
 void rampDown() {
-  if ( bottomLimitIsClosed() ) return;     // return if ramp already down
-  if ( rampDownError ) return;             // return if previous ramp down error
+
+  if ( rampClosed == 0 or rampDownError == true ) return;            // return if previous ramp down error
 
   motorDown(255);                          // turn on motor
-  Serial.print("Ramp is moving down...");
-  
   unsigned long startTime = millis();
-  delay(2000);                             // delay a couple seconds to get off of top limit
-  while ( !bottomLimitIsClosed() ) {
+  Serial.print("Ramp is moving down..."); 
+  delay(500);                             // delay a couple seconds to get off switch
+  
+  while ( !switchIsClosed() ) {
     // error out if takes too long, or if top limit gets triggered (string wrap-around)
-    if ( millis() - startTime >= openTimeout * 1000 or topLimitIsClosed() ) {
+    if ( millis() - startTime >= openTimeout * 1000 ) {
       rampDownError = true;
       Serial.println("ERROR");
       motorOff();
@@ -176,9 +174,11 @@ void rampDown() {
       return;
     }
   }
-  Serial.println("OK");
+  
   motorOff();
-
+  rampClosed = 0;
+  
+  Serial.println("OK");
   lcd.setCursor(0,3);
   lcd.print("RAMP: OPEN");
 }
@@ -186,17 +186,10 @@ void rampDown() {
 
 // ********************************** Limit Switches ************************************
 
-boolean topLimitIsClosed() {
-  int reading1 = digitalRead(topLimitPin);
+boolean switchIsClosed() {
+  int reading1 = digitalRead(switchPin);
   delay(debounceDelay);
-  int reading2 = digitalRead(topLimitPin);
-  return (reading1 == reading2) && reading1 == 0;
-}
-
-boolean bottomLimitIsClosed() {
-  int reading1 = digitalRead(bottomLimitPin);
-  delay(debounceDelay);
-  int reading2 = digitalRead(bottomLimitPin);
+  int reading2 = digitalRead(switchPin);
   return (reading1 == reading2) && reading1 == 0;
 }
 
