@@ -1,7 +1,3 @@
-#include <LiquidCrystal_I2C.h>
-
-LiquidCrystal_I2C lcd(0x27, 20, 4);
-
 
 // ************************************ Define Pins *************************************
 
@@ -19,47 +15,31 @@ const int photocellPin = A0;
 
 // ************************************* Variables *************************************
 
-const long openTimeout = 20;                 // timeout for ramp to open in s
-const long closeTimeout = 20;                // timeout for ramp to close in s
+const long openTime = 40;                 // time for ramp to open in s
+const long closeTime = 40;                // time for ramp to close in s
 
 const long debounceDelay = 50;              // limit switch debounce time in ms
 
-const long photocellReadInterval = 1;       // time in s between light level readings
+const long photocellReadInterval = 6;       // time in s between light level readings
 unsigned long lastPhotocellReadTime = 0;    // time of last light level reading
 int photocellValue = 0;                     // last light level reading
 float avgPhotocellValue = 0;                // rolling avg light level
-
-bool rampUpError = false;
-bool rampDownError = false;
 
 int rampClosed = -1;                        // current ramp state
 
 
 void setup() {
-
-  // init LCD
-  lcd.init();
-  lcd.backlight();
-
   // Motor control outputs
   pinMode(motorUpPin, OUTPUT);
   pinMode(motorDownPin, OUTPUT);
   pinMode(motorSpeedPin, OUTPUT);
-
-  // Limit switch inputs
-  pinMode(switchPin, INPUT_PULLUP);
 
   Serial.begin(9600); // set serial port for communication
 }
 
 void loop() {
   readLightLevel();
-  delay(photocellReadInterval * 1000);
-
-  lcd.setCursor(0,2);
-  lcd.print("SW State:");
-  lcd.print(!digitalRead(switchPin));
-     
+  delay(photocellReadInterval * 1000);    
 }
 
 
@@ -92,21 +72,10 @@ void readLightLevel() {
   Serial.print("Avg: ");
   Serial.println(avgPhotocellValue);
 
-  lcd.setCursor(0,0);
-  lcd.print("LUM:");
-  lcd.setCursor(4,0);
-  lcd.print("    ");
-  lcd.setCursor(4,0);
-  lcd.print(photocellValue);
-  lcd.setCursor(10,0);
-  lcd.print("AVG:");
-  lcd.setCursor(14,0);
-  lcd.print(avgPhotocellValue);
-
   if (++ccycle >= ncycles) {
     ccycle = 0;
 
-    if (avgPhotocellValue >= 300)
+    if (avgPhotocellValue >= 200)
     {
       rampDown();
     }
@@ -123,64 +92,30 @@ void readLightLevel() {
 
 void rampUp() {
 
-  if ( rampClosed == 1 or rampUpError == true) return;         // return if ramp already open
+  if ( rampClosed == 1) return;
 
-  motorUp(255);                          // turn on motor
-  unsigned long startTime = millis();
+  motorUp(255);
   Serial.print("Ramp is moving up..."); 
-  delay(500);                            // delay a couple ms to get off switch
-
-  while ( !switchIsClosed() ) {
-    // error out if takes too long
-    if ( millis() - startTime >= closeTimeout * 1000 ) {
-      rampUpError = true;
-      Serial.println("ERROR");
-      motorOff();
-
-      lcd.setCursor(0,3);
-      lcd.print("RAMP: CLOSE ERROR!!!");
-        
-      return;
-    }
-  }
+  delay(closeTime * 1000);
 
   motorOff();
   rampClosed = 1;
   
   Serial.println("OK");
-  lcd.setCursor(0,3);
-  lcd.print("RAMP: CLOSED");
 }
 
 void rampDown() {
 
-  if ( rampClosed == 0 or rampDownError == true ) return;            // return if previous ramp down error
-
-  motorDown(255);                          // turn on motor
-  unsigned long startTime = millis();
+  if ( rampClosed == 0) return;
+  
+  motorDown(255);
   Serial.print("Ramp is moving down..."); 
-  delay(500);                             // delay a couple seconds to get off switch
+  delay(openTime * 1000);
   
-  while ( !switchIsClosed() ) {
-    // error out if takes too long, or if top limit gets triggered (string wrap-around)
-    if ( millis() - startTime >= openTimeout * 1000 ) {
-      rampDownError = true;
-      Serial.println("ERROR");
-      motorOff();
-
-      lcd.setCursor(0,3);
-      lcd.print("RAMP: OPEN ERROR!!!");
-      
-      return;
-    }
-  }
-  
-  motorOff();
+  motorOff();  
   rampClosed = 0;
   
   Serial.println("OK");
-  lcd.setCursor(0,3);
-  lcd.print("RAMP: OPEN");
 }
 
 
